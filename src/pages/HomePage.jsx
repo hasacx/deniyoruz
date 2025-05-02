@@ -1,7 +1,5 @@
 import React from 'react'
 import { useState, useEffect } from 'react'
-import { db } from '../firebase'
-import { collection, getDocs, addDoc, query, where, Timestamp } from 'firebase/firestore'
 import {
   Box,
   Container,
@@ -35,7 +33,10 @@ import { useTheme, useMediaQuery } from '@mui/material'
 import { Grid } from '@mui/material'
 
 function HomePage() {
-  const [essences, setEssences] = useState([])
+  const [essences, setEssences] = useState(() => {
+    const savedEssences = localStorage.getItem('essences')
+    return savedEssences ? JSON.parse(savedEssences) : []
+  })
 
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
@@ -46,38 +47,13 @@ function HomePage() {
   const [snackbarSeverity, setSnackbarSeverity] = useState('success')
 
   useEffect(() => {
-    const fetchEssences = async () => {
-      try {
-        const essencesSnapshot = await getDocs(collection(db, 'essences'))
-        const essencesList = essencesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          totalDemand: 0
-        }))
-
-        // Fetch demands and calculate total demands
-        const demandsSnapshot = await getDocs(collection(db, 'demands'))
-        demandsSnapshot.docs.forEach(doc => {
-          const demand = doc.data()
-          const essence = essencesList.find(e => e.id === demand.essenceId)
-          if (essence) {
-            essence.totalDemand = (essence.totalDemand || 0) + demand.quantity
-          }
-        })
-
-        setEssences(essencesList)
-      } catch (error) {
-        console.error('Error fetching essences:', error)
-        setSnackbarMessage('Error fetching essences')
-        setSnackbarSeverity('error')
-        setOpenSnackbar(true)
-      }
+    const savedEssences = localStorage.getItem('essences')
+    if (savedEssences) {
+      setEssences(JSON.parse(savedEssences))
     }
-
-    fetchEssences()
   }, [])
 
-  const handleCreateDemand = async (essence) => {
+  const handleCreateDemand = (selectedEssence) => {
     const amount = 50
     const currentUser = JSON.parse(localStorage.getItem('currentUser'))
     if (!currentUser) {
@@ -87,47 +63,42 @@ function HomePage() {
       return
     }
 
-    if (essence.stockAmount < amount || essence.totalDemand + amount > essence.stockAmount) {
+    if (selectedEssence.stockAmount < amount || selectedEssence.totalDemand + amount > selectedEssence.stockAmount) {
       setSnackbarMessage('Stok miktarı yetersiz')
       setSnackbarSeverity('error')
       setOpenSnackbar(true)
       return
     }
 
-    try {
-      // Yeni talebi Firestore'a ekle
-      const newDemand = {
-        essenceId: essence.id,
-        essenceName: essence.name,
-        essenceCode: essence.code,
-        quantity: amount,
-        price: essence.price,
-        category: essence.category,
-        userRef: currentUser.email,
-        createdAt: Timestamp.now(),
-        totalPrice: amount * essence.price
-      }
+    // Kullanıcı bilgilerini localStorage'dan al
+    const users = JSON.parse(localStorage.getItem('users') || '[]')
+    const currentUserEmail = currentUser.email
+    const userDetails = users.find(u => u.email === currentUserEmail)
 
-      await addDoc(collection(db, 'demands'), newDemand)
-
-      // Yerel state'i güncelle
-      setEssences(prevEssences =>
-        prevEssences.map(e =>
-          e.id === essence.id
-            ? { ...e, totalDemand: (e.totalDemand || 0) + amount }
-            : e
-        )
-      )
-
-      setSnackbarMessage('Talep başarıyla oluşturuldu')
-      setSnackbarSeverity('success')
-      setOpenSnackbar(true)
-    } catch (error) {
-      console.error('Talep oluşturulurken hata:', error)
-      setSnackbarMessage('Talep oluşturulurken hata oluştu')
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
+    const newDemand = {
+      id: Date.now(),
+      userName: `${userDetails.firstName} ${userDetails.lastName}`,
+      amount: amount,
+      date: new Date().toISOString(),
+      totalPrice: amount * selectedEssence.price,
+      category: selectedEssence.category
     }
+
+    const updatedEssences = essences.map(e =>
+      e.id === selectedEssence.id
+        ? {
+            ...e,
+            totalDemand: e.totalDemand + amount,
+            demands: [...(e.demands || []), newDemand]
+          }
+        : e
+    )
+
+    setEssences(updatedEssences)
+    localStorage.setItem('essences', JSON.stringify(updatedEssences))
+    setSnackbarMessage('Talep başarıyla oluşturuldu')
+    setSnackbarSeverity('success')
+    setOpenSnackbar(true)
   }
 
   const toggleRow = (id) => {

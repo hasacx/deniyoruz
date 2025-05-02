@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../firebase'
-import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import {
   Box,
   Container,
@@ -45,36 +43,6 @@ function AdminPage() {
     if (!currentUser || currentUser.email !== 'admin@esans.com') {
       navigate('/')
     }
-
-    const fetchEssences = async () => {
-      try {
-        const essencesSnapshot = await getDocs(collection(db, 'essences'))
-        const essencesList = essencesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          totalDemand: 0 // Initialize totalDemand
-        }))
-    
-        // Fetch demands and calculate total demands
-        const demandsSnapshot = await getDocs(collection(db, 'demands'))
-        demandsSnapshot.docs.forEach(doc => {
-          const demand = doc.data()
-          const essence = essencesList.find(e => e.id === demand.essenceId)
-          if (essence) {
-            essence.totalDemand = (essence.totalDemand || 0) + demand.quantity
-          }
-        })
-    
-        setEssences(essencesList)
-      } catch (error) {
-        console.error('Error fetching essences:', error)
-        setSnackbarMessage(`Error fetching essences: ${error.message}`) // Show specific error
-        setSnackbarSeverity('error')
-        setOpenSnackbar(true)
-      }
-    }
-
-    fetchEssences()
   }, [])
 
   const [essences, setEssences] = useState(() => {
@@ -91,7 +59,6 @@ function AdminPage() {
   const [openDialog, setOpenDialog] = useState(false)
   const [openSnackbar, setOpenSnackbar] = useState(false)
   const [snackbarMessage, setSnackbarMessage] = useState('')
-  const [snackbarSeverity, setSnackbarSeverity] = useState('success') // Add severity state
   const [editingEssence, setEditingEssence] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
@@ -102,47 +69,9 @@ function AdminPage() {
     category: ''
   })
 
-  // Extracted fetch function
-  const fetchEssences = async () => {
-    try {
-      const essencesSnapshot = await getDocs(collection(db, 'essences'))
-      const essencesList = essencesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        totalDemand: 0 // Initialize totalDemand
-      }))
-  
-      // Fetch demands and calculate total demands
-      const demandsSnapshot = await getDocs(collection(db, 'demands'))
-      demandsSnapshot.docs.forEach(doc => {
-        const demand = doc.data()
-        const essence = essencesList.find(e => e.id === demand.essenceId)
-        if (essence) {
-          essence.totalDemand = (essence.totalDemand || 0) + demand.quantity
-        }
-      })
-  
-      setEssences(essencesList)
-    } catch (error) {
-      console.error('Error fetching essences:', error)
-      setSnackbarMessage(`Error fetching essences: ${error.message}`) // Show specific error
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
-    }
-  }
-
   useEffect(() => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'))
-    if (!currentUser || currentUser.email !== 'admin@esans.com') {
-      navigate('/')
-    }
-    fetchEssences() // Initial fetch
-  }, [navigate]) // Add navigate to dependency array
-
-  // Remove the useEffect that saves to localStorage, as state is now driven by Firestore
-  // useEffect(() => {
-  //   localStorage.setItem('essences', JSON.stringify(essences))
-  // }, [essences])
+    localStorage.setItem('essences', JSON.stringify(essences))
+  }, [essences])
 
   const handleOpenDialog = (essence = null) => {
     if (essence) {
@@ -189,84 +118,49 @@ function AdminPage() {
     }))
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formData.code || !/^[A-Za-z0-9]+$/.test(formData.code)) {
       setSnackbarMessage('Lütfen geçerli bir kod giriniz (sadece harf ve rakam içerebilir)')
-      setSnackbarSeverity('warning') // Use warning severity
       setOpenSnackbar(true)
       return
     }
 
-    try {
-      if (editingEssence) {
-        // Mevcut esansı güncelle
-        const essenceRef = doc(db, 'essences', editingEssence.id)
-        await updateDoc(essenceRef, {
-          name: formData.name,
-          code: formData.code,
-          targetAmount: Number(formData.targetAmount),
-          stockAmount: Number(formData.stockAmount),
-          price: Number(formData.price),
-          category: formData.category
-        })
-        // Remove optimistic update
-        // setEssences(prev =>
-        //   prev.map(essence =>
-        //     essence.id === editingEssence.id
-        //       ? { ...essence, ...formData }
-        //       : essence
-        //   )
-        // )
-        setSnackbarMessage('Esans başarıyla güncellendi')
-        setSnackbarSeverity('success')
-      } else {
-        // Yeni esans ekle
-        const docRef = await addDoc(collection(db, 'essences'), {
-          name: formData.name,
-          code: formData.code,
-          targetAmount: Number(formData.targetAmount),
-          stockAmount: Number(formData.stockAmount),
-          price: Number(formData.price),
-          category: formData.category,
-          totalDemand: 0 // Ensure totalDemand is added
-        })
-        // Remove optimistic update
-        // const newEssence = {
-        //   id: docRef.id,
-        //   ...formData,
-        //   totalDemand: 0
-        // }
-        // setEssences(prev => [...prev, newEssence])
-        setSnackbarMessage('Yeni esans başarıyla eklendi')
-        setSnackbarSeverity('success')
-      }
+    const codeExists = essences.some(essence => 
+      essence.code === formData.code && (!editingEssence || essence.id !== editingEssence.id)
+    )
 
+    if (codeExists) {
+      setSnackbarMessage('Bu kod zaten kullanılmakta')
       setOpenSnackbar(true)
-      handleCloseDialog()
-      fetchEssences() // Re-fetch after successful add/update
-    } catch (error) {
-      console.error('Esans kaydedilirken hata oluştu:', error)
-      setSnackbarMessage(`Esans kaydedilirken hata oluştu: ${error.message}`)
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
+      return
     }
+    if (editingEssence) {
+      setEssences(prev =>
+        prev.map(essence =>
+          essence.id === editingEssence.id
+            ? { ...essence, ...formData }
+            : essence
+        )
+      )
+      setSnackbarMessage('Esans başarıyla güncellendi')
+    } else {
+      const newEssence = {
+        id: essences.length + 1,
+        ...formData,
+        totalDemand: 0,
+        demands: []
+      }
+      setEssences(prev => [...prev, newEssence])
+      setSnackbarMessage('Yeni esans başarıyla eklendi')
+    }
+    setOpenSnackbar(true)
+    handleCloseDialog()
   }
 
-  const handleDelete = async (id) => {
-    try {
-      await deleteDoc(doc(db, 'essences', id))
-      // Remove optimistic update
-      // setEssences(prev => prev.filter(essence => essence.id !== id))
-      setSnackbarMessage('Esans başarıyla silindi')
-      setSnackbarSeverity('success')
-      setOpenSnackbar(true)
-      fetchEssences() // Re-fetch after successful delete
-    } catch (error) {
-      console.error('Esans silinirken hata oluştu:', error)
-      setSnackbarMessage(`Esans silinirken hata oluştu: ${error.message}`)
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
-    }
+  const handleDelete = (id) => {
+    setEssences(prev => prev.filter(essence => essence.id !== id))
+    setSnackbarMessage('Esans başarıyla silindi')
+    setOpenSnackbar(true)
   }
 
   const downloadTemplate = () => {
@@ -282,85 +176,34 @@ function AdminPage() {
     XLSX.writeFile(wb, 'esans_sablonu.xlsx')
   }
 
-  const handleFileUpload = async (event) => {
+  const handleFileUpload = (event) => {
     const file = event.target.files[0]
     const reader = new FileReader()
 
-    reader.onload = async (e) => {
-      try {
-        const data = new Uint8Array(e.target.result)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
 
-        // İlk satırı (başlıkları) atla ve verileri işle
-        const newEssencesData = jsonData.slice(1).filter(row => row.length > 0 && row[0]).map((row) => ({
-          name: row[0],
-          code: row[1] || `ES${Date.now().toString(36)}`,
-          category: row[2] || '',
-          stockAmount: Number(row[3]) || 0,
-          // totalDemand should be calculated, not imported directly from template
-          price: Number(row[5]) || 0,
-          targetAmount: 250, // Default target amount
-          totalDemand: 0 // Initialize totalDemand
-          // createdAt: new Date() // Firestore automatically adds timestamps if configured
-        }))
+      // İlk satırı (başlıkları) atla ve verileri işle
+      const newEssences = jsonData.slice(1).map((row, index) => ({
+        id: essences.length + index + 1,
+        name: row[0],
+        code: row[1] || `ES${(essences.length + index + 1).toString().padStart(3, '0')}`,
+        category: row[2] || '',
+        stockAmount: row[3] || 0,
+        totalDemand: row[4] || 0,
+        price: row[5] || 0,
+        demands: []
+      }))
 
-        if (newEssencesData.length === 0) {
-          setSnackbarMessage('Excel dosyasında geçerli esans verisi bulunamadı.')
-          setSnackbarSeverity('warning')
-          setOpenSnackbar(true)
-          return;
-        }
-
-        // Firestore'a yeni esansları ekle
-        let errorOccurred = false;
-        let addedCount = 0;
-        for (const essenceData of newEssencesData) {
-          try {
-            // Add validation if needed (e.g., check for existing code)
-            await addDoc(collection(db, 'essences'), essenceData)
-            addedCount++;
-            // Remove optimistic update
-            // const newEssence = {
-            //   id: docRef.id,
-            //   ...essenceData
-            // }
-            // setEssences(prev => [...prev, newEssence]) 
-          } catch (error) {
-            console.error('Esans eklenirken hata:', error)
-            setSnackbarMessage(`Esans eklenirken hata oluştu (${essenceData.name || 'Bilinmeyen'}): ${error.message}`)
-            setSnackbarSeverity('error')
-            setOpenSnackbar(true)
-            errorOccurred = true;
-            break; // Stop processing on first error
-          }
-        }
-
-        if (!errorOccurred) {
-          setSnackbarMessage(`${addedCount} esans başarıyla içe aktarıldı`)
-          setSnackbarSeverity('success')
-          setOpenSnackbar(true)
-          fetchEssences() // Re-fetch after successful bulk upload
-        }
-      } catch (error) {
-        console.error('Excel dosyası işlenirken hata:', error)
-        setSnackbarMessage(`Excel dosyası işlenirken hata oluştu: ${error.message}`)
-        setSnackbarSeverity('error')
-        setOpenSnackbar(true)
-      }
+      setEssences(prev => [...prev, ...newEssences])
+      setSnackbarMessage(`${newEssences.length} esans başarıyla içe aktarıldı`)
+      setOpenSnackbar(true)
     }
 
-    reader.onerror = (error) => {
-        console.error('Dosya okuma hatası:', error);
-        setSnackbarMessage('Dosya okunurken bir hata oluştu.');
-        setSnackbarSeverity('error');
-        setOpenSnackbar(true);
-    };
-
     reader.readAsArrayBuffer(file)
-    // Reset file input to allow uploading the same file again if needed
-    event.target.value = null;
   }
 
   const toggleRow = (id) => {
@@ -609,14 +452,13 @@ function AdminPage() {
 
       <Snackbar
         open={openSnackbar}
-        autoHideDuration={6000} // Increase duration slightly
+        autoHideDuration={3000}
         onClose={() => setOpenSnackbar(false)}
       >
-        {/* Use Alert component directly for severity control */}
         <MuiAlert
           elevation={6}
           variant="filled"
-          severity={snackbarSeverity} // Use state for severity
+          severity="success"
           onClose={() => setOpenSnackbar(false)}>
           {snackbarMessage}
         </MuiAlert>
