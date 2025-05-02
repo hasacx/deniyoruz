@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Box, Container, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Grid, Card, CardContent, IconButton, Snackbar, Checkbox, Button } from '@mui/material'
 import { Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon, LocationOn as LocationIcon, LocationCity as LocationCityIcon, Home as HomeIcon, Delete as DeleteIcon } from '@mui/icons-material'
 import MuiAlert from '@mui/material/Alert'
+import { collection, getDocs } from 'firebase-admin'
 
 function ProfilePage() {
   const [userInfo, setUserInfo] = useState({
@@ -144,6 +145,27 @@ function ProfilePage() {
   const handleSnackbarClose = () => {
     setSnackbar({ ...snackbar, open: false })
   }
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const userSnapshot = await getDocs(collection(db, 'users'))
+        const userProfile = userSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+  
+        setUserProfile(userProfile)
+      } catch (error) {
+        console.error('Error fetching user profile:', error)
+        setSnackbarMessage('Error fetching user profile')
+        setSnackbarSeverity('error')
+        setOpenSnackbar(true)
+      }
+    }
+  
+    fetchUserProfile()
+  }, [])
 
   return (
     <Box sx={{ width: '100%', height: '100%', p: 2 }}>

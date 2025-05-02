@@ -55,7 +55,7 @@ function HomePage() {
           totalDemand: 0
         }))
 
-        // Talepleri getir ve toplam talepleri hesapla
+        // Fetch demands and calculate total demands
         const demandsSnapshot = await getDocs(collection(db, 'demands'))
         demandsSnapshot.docs.forEach(doc => {
           const demand = doc.data()
@@ -67,8 +67,8 @@ function HomePage() {
 
         setEssences(essencesList)
       } catch (error) {
-        console.error('Esansları getirirken hata oluştu:', error)
-        setSnackbarMessage('Esansları getirirken hata oluştu')
+        console.error('Error fetching essences:', error)
+        setSnackbarMessage('Error fetching essences')
         setSnackbarSeverity('error')
         setOpenSnackbar(true)
       }

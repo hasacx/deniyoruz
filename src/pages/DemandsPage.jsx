@@ -14,19 +14,16 @@ function DemandsPage() {
   useEffect(() => {
     const fetchDemands = async () => {
       try {
-        // Talepleri getir
         const demandsSnapshot = await getDocs(collection(db, 'demands'))
         const demandsMap = new Map()
 
-        // Her talep için kullanıcı bilgilerini ve esans detaylarını al
         for (const doc of demandsSnapshot.docs) {
           const demand = { id: doc.id, ...doc.data() }
-          
-          // Sadece miktarı 250 ve üzeri olan talepleri al
+
           if (demand.quantity >= 250) {
             const userRef = doc.data().userRef
             const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', userRef)))
-            
+
             if (!userDoc.empty) {
               const userData = userDoc.docs[0].data()
               const userName = `${userData.firstName} ${userData.lastName}`
@@ -68,7 +65,10 @@ function DemandsPage() {
         })
         setUserDemands(userDemandsList)
       } catch (error) {
-        console.error('Talepleri getirirken hata oluştu:', error)
+        console.error('Error fetching demands:', error)
+        setSnackbarMessage('Error fetching demands')
+        setSnackbarSeverity('error')
+        setOpenSnackbar(true)
       }
     }
 

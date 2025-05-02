@@ -46,7 +46,6 @@ function AdminPage() {
       navigate('/')
     }
 
-    // Firestore'dan esansları getir
     const fetchEssences = async () => {
       try {
         const essencesSnapshot = await getDocs(collection(db, 'essences'))
@@ -55,8 +54,8 @@ function AdminPage() {
           ...doc.data(),
           totalDemand: 0
         }))
-
-        // Talepleri getir ve toplam talepleri hesapla
+    
+        // Fetch demands and calculate total demands
         const demandsSnapshot = await getDocs(collection(db, 'demands'))
         demandsSnapshot.docs.forEach(doc => {
           const demand = doc.data()
@@ -65,11 +64,12 @@ function AdminPage() {
             essence.totalDemand = (essence.totalDemand || 0) + demand.quantity
           }
         })
-
+    
         setEssences(essencesList)
       } catch (error) {
-        console.error('Esansları getirirken hata oluştu:', error)
-        setSnackbarMessage('Esansları getirirken hata oluştu')
+        console.error('Error fetching essences:', error)
+        setSnackbarMessage('Error fetching essences')
+        setSnackbarSeverity('error')
         setOpenSnackbar(true)
       }
     }
