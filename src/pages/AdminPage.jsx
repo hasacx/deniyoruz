@@ -238,27 +238,47 @@ function AdminPage() {
     const file = event.target.files[0]
     const reader = new FileReader()
 
-    reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+    reader.onload = async (e) => {
+      try {
+        const data = new Uint8Array(e.target.result)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
 
-      // İlk satırı (başlıkları) atla ve verileri işle
-      const newEssences = jsonData.slice(1).map((row, index) => ({
-        id: essences.length + index + 1,
-        name: row[0],
-        code: row[1] || `ES${(essences.length + index + 1).toString().padStart(3, '0')}`,
-        category: row[2] || '',
-        stockAmount: row[3] || 0,
-        totalDemand: row[4] || 0,
-        price: row[5] || 0,
-        demands: []
-      }))
+        // İlk satırı (başlıkları) atla ve verileri işle
+        const newEssences = jsonData.slice(1).map((row) => ({
+          name: row[0],
+          code: row[1] || `ES${Date.now().toString(36)}`,
+          category: row[2] || '',
+          stockAmount: Number(row[3]) || 0,
+          totalDemand: Number(row[4]) || 0,
+          price: Number(row[5]) || 0,
+          targetAmount: 250
+        }))
 
-      setEssences(prev => [...prev, ...newEssences])
-      setSnackbarMessage(`${newEssences.length} esans başarıyla içe aktarıldı`)
-      setOpenSnackbar(true)
+        // Firestore'a yeni esansları ekle
+        const addedEssences = []
+        for (const essence of newEssences) {
+          try {
+            const docRef = await addDoc(collection(db, 'essences'), essence)
+            addedEssences.push({
+              id: docRef.id,
+              ...essence
+            })
+          } catch (error) {
+            console.error('Esans eklenirken hata:', error)
+          }
+        }
+
+        setEssences(prev => [...prev, ...addedEssences])
+        setSnackbarMessage(`${addedEssences.length} esans başarıyla içe aktarıldı`)
+        setOpenSnackbar(true)
+      } catch (error) {
+        console.error('Excel dosyası işlenirken hata:', error)
+        setSnackbarMessage('Excel dosyası işlenirken hata oluştu')
+        setSnackbarSeverity('error')
+        setOpenSnackbar(true)
+      }
     }
 
     reader.readAsArrayBuffer(file)
