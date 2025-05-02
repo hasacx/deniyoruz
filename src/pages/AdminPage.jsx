@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { db } from '../firebase'
+import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import {
   Box,
   Container,
@@ -43,6 +45,36 @@ function AdminPage() {
     if (!currentUser || currentUser.email !== 'admin@esans.com') {
       navigate('/')
     }
+
+    // Firestore'dan esansları getir
+    const fetchEssences = async () => {
+      try {
+        const essencesSnapshot = await getDocs(collection(db, 'essences'))
+        const essencesList = essencesSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          totalDemand: 0
+        }))
+
+        // Talepleri getir ve toplam talepleri hesapla
+        const demandsSnapshot = await getDocs(collection(db, 'demands'))
+        demandsSnapshot.docs.forEach(doc => {
+          const demand = doc.data()
+          const essence = essencesList.find(e => e.id === demand.essenceId)
+          if (essence) {
+            essence.totalDemand = (essence.totalDemand || 0) + demand.quantity
+          }
+        })
+
+        setEssences(essencesList)
+      } catch (error) {
+        console.error('Esansları getirirken hata oluştu:', error)
+        setSnackbarMessage('Esansları getirirken hata oluştu')
+        setOpenSnackbar(true)
+      }
+    }
+
+    fetchEssences()
   }, [])
 
   const [essences, setEssences] = useState(() => {
@@ -118,49 +150,75 @@ function AdminPage() {
     }))
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.code || !/^[A-Za-z0-9]+$/.test(formData.code)) {
       setSnackbarMessage('Lütfen geçerli bir kod giriniz (sadece harf ve rakam içerebilir)')
       setOpenSnackbar(true)
       return
     }
 
-    const codeExists = essences.some(essence => 
-      essence.code === formData.code && (!editingEssence || essence.id !== editingEssence.id)
-    )
+    try {
+      if (editingEssence) {
+        // Mevcut esansı güncelle
+        const essenceRef = doc(db, 'essences', editingEssence.id)
+        await updateDoc(essenceRef, {
+          name: formData.name,
+          code: formData.code,
+          targetAmount: Number(formData.targetAmount),
+          stockAmount: Number(formData.stockAmount),
+          price: Number(formData.price),
+          category: formData.category
+        })
 
-    if (codeExists) {
-      setSnackbarMessage('Bu kod zaten kullanılmakta')
-      setOpenSnackbar(true)
-      return
-    }
-    if (editingEssence) {
-      setEssences(prev =>
-        prev.map(essence =>
-          essence.id === editingEssence.id
-            ? { ...essence, ...formData }
-            : essence
+        setEssences(prev =>
+          prev.map(essence =>
+            essence.id === editingEssence.id
+              ? { ...essence, ...formData }
+              : essence
+          )
         )
-      )
-      setSnackbarMessage('Esans başarıyla güncellendi')
-    } else {
-      const newEssence = {
-        id: essences.length + 1,
-        ...formData,
-        totalDemand: 0,
-        demands: []
+        setSnackbarMessage('Esans başarıyla güncellendi')
+      } else {
+        // Yeni esans ekle
+        const docRef = await addDoc(collection(db, 'essences'), {
+          name: formData.name,
+          code: formData.code,
+          targetAmount: Number(formData.targetAmount),
+          stockAmount: Number(formData.stockAmount),
+          price: Number(formData.price),
+          category: formData.category,
+          totalDemand: 0
+        })
+
+        const newEssence = {
+          id: docRef.id,
+          ...formData,
+          totalDemand: 0
+        }
+        setEssences(prev => [...prev, newEssence])
+        setSnackbarMessage('Yeni esans başarıyla eklendi')
       }
-      setEssences(prev => [...prev, newEssence])
-      setSnackbarMessage('Yeni esans başarıyla eklendi')
+
+      setOpenSnackbar(true)
+      handleCloseDialog()
+    } catch (error) {
+      console.error('Esans kaydedilirken hata oluştu:', error)
+      setSnackbarMessage('Esans kaydedilirken hata oluştu')
+      setOpenSnackbar(true)
     }
-    setOpenSnackbar(true)
-    handleCloseDialog()
   }
 
-  const handleDelete = (id) => {
-    setEssences(prev => prev.filter(essence => essence.id !== id))
-    setSnackbarMessage('Esans başarıyla silindi')
-    setOpenSnackbar(true)
+  const handleDelete = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'essences', id))
+      setEssences(prev => prev.filter(essence => essence.id !== id))
+      setSnackbarMessage('Esans başarıyla silindi')
+      setOpenSnackbar(true)
+    } catch (error) {
+      console.error('Esans silinirken hata oluştu:', error)
+      setSnackbarMessage('Esans silinirken hata oluştu')
+      setOpenSnackbar(true)
+    }
   }
 
   const downloadTemplate = () => {

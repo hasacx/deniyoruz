@@ -3,6 +3,8 @@ import { Container, Typography, Paper, List, ListItem, ListItemText, Collapse, I
 import { useNavigate } from 'react-router-dom'
 import ExpandMore from '@mui/icons-material/ExpandMore'
 import ExpandLess from '@mui/icons-material/ExpandLess'
+import { db } from '../firebase'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 
 function DemandsPage() {
   const navigate = useNavigate()
@@ -10,56 +12,67 @@ function DemandsPage() {
   const [expandedUser, setExpandedUser] = useState(null)
 
   useEffect(() => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'))
-    if (!currentUser || currentUser.email !== 'admin@esans.com') {
-      navigate('/home')
-      return
+    const fetchDemands = async () => {
+      try {
+        // Talepleri getir
+        const demandsSnapshot = await getDocs(collection(db, 'demands'))
+        const demandsMap = new Map()
+
+        // Her talep için kullanıcı bilgilerini ve esans detaylarını al
+        for (const doc of demandsSnapshot.docs) {
+          const demand = { id: doc.id, ...doc.data() }
+          
+          // Sadece miktarı 250 ve üzeri olan talepleri al
+          if (demand.quantity >= 250) {
+            const userRef = doc.data().userRef
+            const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', userRef)))
+            
+            if (!userDoc.empty) {
+              const userData = userDoc.docs[0].data()
+              const userName = `${userData.firstName} ${userData.lastName}`
+
+              if (!demandsMap.has(userName)) {
+                demandsMap.set(userName, {
+                  userInfo: {
+                    name: userName,
+                    phone: userData.phone,
+                    city: userData.city,
+                    district: userData.district,
+                    neighborhood: userData.neighborhood,
+                    address: userData.address
+                  },
+                  demands: [],
+                  totalAmount: 0
+                })
+              }
+
+              const demandWithPrice = {
+                id: demand.id,
+                essenceName: demand.essenceName,
+                essenceCode: demand.essenceCode,
+                amount: demand.quantity,
+                date: demand.createdAt.toDate(),
+                price: demand.price,
+                category: demand.category
+              }
+
+              demandsMap.get(userName).demands.push(demandWithPrice)
+              demandsMap.get(userName).totalAmount += demand.price
+            }
+          }
+        }
+
+        const userDemandsList = Array.from(demandsMap.values())
+        userDemandsList.forEach(userData => {
+          userData.demands.sort((a, b) => b.date - a.date)
+        })
+        setUserDemands(userDemandsList)
+      } catch (error) {
+        console.error('Talepleri getirirken hata oluştu:', error)
+      }
     }
 
-    const users = JSON.parse(localStorage.getItem('users') || '[]')
-    const essences = JSON.parse(localStorage.getItem('essences') || '[]')
-    const demandsMap = new Map()
-
-    essences.forEach(essence => {
-      if (essence.demands && essence.totalDemand >= 250) {
-        essence.demands.forEach(demand => {
-          const user = users.find(u => `${u.firstName} ${u.lastName}` === demand.userName)
-          if (user) {
-            if (!demandsMap.has(demand.userName)) {
-              demandsMap.set(demand.userName, {
-                userInfo: {
-                  name: demand.userName,
-                  phone: user.phone,
-                  city: user.city,
-                  district: user.district,
-                  neighborhood: user.neighborhood,
-                  address: user.address
-                },
-                demands: [],
-                totalAmount: 0
-              })
-            }
-            const demandWithPrice = {
-              id: demand.id,
-              essenceName: essence.name,
-              essenceCode: essence.code,
-              amount: demand.amount,
-              date: demand.date,
-              price: essence.price,
-              category: essence.category
-            }
-            demandsMap.get(demand.userName).demands.push(demandWithPrice)
-            demandsMap.get(demand.userName).totalAmount += essence.price
-          }
-        })
-      }
-    })
-
-    const userDemandsList = Array.from(demandsMap.values())
-    userDemandsList.forEach(userData => {
-      userData.demands.sort((a, b) => new Date(b.date) - new Date(a.date))
-    })
-    setUserDemands(userDemandsList)
+    fetchDemands()
   }, [])
 
   const handleExpandClick = (userName) => {
