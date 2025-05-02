@@ -234,7 +234,7 @@ function AdminPage() {
     XLSX.writeFile(wb, 'esans_sablonu.xlsx')
   }
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0]
     const reader = new FileReader()
 
@@ -246,37 +246,39 @@ function AdminPage() {
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
 
         // İlk satırı (başlıkları) atla ve verileri işle
-        const newEssences = jsonData.slice(1).map((row) => ({
+        const newEssences = jsonData.slice(1).filter(row => row.length > 0).map((row) => ({
           name: row[0],
           code: row[1] || `ES${Date.now().toString(36)}`,
           category: row[2] || '',
           stockAmount: Number(row[3]) || 0,
           totalDemand: Number(row[4]) || 0,
           price: Number(row[5]) || 0,
-          targetAmount: 250
+          targetAmount: 250,
+          createdAt: new Date()
         }))
 
         // Firestore'a yeni esansları ekle
-        const addedEssences = []
         for (const essence of newEssences) {
           try {
             const docRef = await addDoc(collection(db, 'essences'), essence)
-            addedEssences.push({
+            const newEssence = {
               id: docRef.id,
               ...essence
-            })
+            }
+            setEssences(prev => [...prev, newEssence])
           } catch (error) {
             console.error('Esans eklenirken hata:', error)
+            setSnackbarMessage('Esans eklenirken hata oluştu')
+            setOpenSnackbar(true)
+            return
           }
         }
 
-        setEssences(prev => [...prev, ...addedEssences])
-        setSnackbarMessage(`${addedEssences.length} esans başarıyla içe aktarıldı`)
+        setSnackbarMessage(`${newEssences.length} esans başarıyla içe aktarıldı`)
         setOpenSnackbar(true)
       } catch (error) {
         console.error('Excel dosyası işlenirken hata:', error)
         setSnackbarMessage('Excel dosyası işlenirken hata oluştu')
-        setSnackbarSeverity('error')
         setOpenSnackbar(true)
       }
     }
