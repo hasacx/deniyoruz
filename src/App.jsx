@@ -8,10 +8,12 @@ import AdminPage from './pages/AdminPage'
 import UsersPage from './pages/UsersPage'
 import DemandsPage from './pages/DemandsPage'
 import Dashboard from './components/Dashboard'
+import { useFirebase } from './contexts/FirebaseContext'
 import { AppBar, Toolbar, Typography, Button, Box, Drawer, List, ListItem, ListItemIcon, ListItemText, IconButton, useMediaQuery } from '@mui/material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Home, Person, ExitToApp, Dashboard as DashboardIcon, AdminPanelSettings, Group, ListAlt, Menu as MenuIcon } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
+import { authService } from './firebase/services'
 
 function Header() {
   const navigate = useNavigate()
@@ -19,9 +21,8 @@ function Header() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const [mobileOpen, setMobileOpen] = useState(false)
-
-  const currentUser = JSON.parse(localStorage.getItem('currentUser'))
-  const isAdmin = currentUser?.email === 'admin@esans.com'
+  const { user } = useFirebase()
+  const isAdmin = user?.email === 'admin@esans.com'
   const isLoginPage = ['/login', '/register', '/'].includes(location.pathname)
 
   if (isLoginPage) return null
@@ -34,12 +35,20 @@ function Header() {
       { text: 'Yönetici Paneli', icon: <AdminPanelSettings />, path: '/admin' },
       { text: 'Kullanıcı Yönetimi', icon: <Group />, path: '/users' },
       { text: 'Talep Listesi', icon: <ListAlt />, path: '/demands' },
-    ] : []),
-    { text: 'Çıkış', icon: <ExitToApp />, path: '/login' },
+    ] : [])
   ]
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
+  }
+
+  const handleLogout = async () => {
+    try {
+      await authService.logout()
+      navigate('/login')
+    } catch (error) {
+      console.error('Çıkış yapılırken hata oluştu:', error)
+    }
   }
 
   const drawer = (
@@ -49,40 +58,29 @@ function Header() {
         borderBottom: '1px solid rgba(255,255,255,0.1)',
         minHeight: '64px !important'
       }}>
-        <Typography variant="h6" component="div">
-          Esans Talep Sistemi
+        <Typography variant="h6" noWrap component="div" color="primary">
+          Sipariş Takip
         </Typography>
       </Toolbar>
       <List>
         {menuItems.map((item) => (
-          <ListItem
-            button
-            key={item.text}
+          <ListItem 
+            button 
+            key={item.text} 
             onClick={() => {
               navigate(item.path)
-              if (isMobile) {
-                handleDrawerToggle()
-              }
-            }}
-            sx={{
-              '&:hover': {
-                backgroundColor: 'rgba(255,255,255,0.1)',
-              },
-              '&.Mui-selected': {
-                backgroundColor: 'rgba(255,255,255,0.2)',
-              },
-              my: 0.5,
-              mx: 1,
-              borderRadius: 1,
+              if (isMobile) handleDrawerToggle()
             }}
             selected={location.pathname === item.path}
           >
-            <ListItemIcon sx={{ color: 'white', minWidth: 40 }}>
-              {item.icon}
-            </ListItemIcon>
+            <ListItemIcon>{item.icon}</ListItemIcon>
             <ListItemText primary={item.text} />
           </ListItem>
         ))}
+        <ListItem button onClick={handleLogout}>
+          <ListItemIcon><ExitToApp /></ListItemIcon>
+          <ListItemText primary="Çıkış Yap" />
+        </ListItem>
       </List>
     </>
   )
@@ -92,26 +90,25 @@ function Header() {
       <AppBar
         position="fixed"
         sx={{
-          display: { sm: 'none' },
-          backgroundColor: '#3366CC',
+          width: { sm: `calc(100% - 240px)` },
+          ml: { sm: `240px` },
+          display: { sm: 'none' }
         }}
       >
         <Toolbar>
           <IconButton
             color="inherit"
-            aria-label="open drawer"
             edge="start"
             onClick={handleDrawerToggle}
-            sx={{ mr: 2 }}
+            sx={{ mr: 2, display: { sm: 'none' } }}
           >
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div">
-            Esans Talep Sistemi
+            Sipariş Takip
           </Typography>
         </Toolbar>
       </AppBar>
-
       <Box
         component="nav"
         sx={{ width: { sm: 240 }, flexShrink: { sm: 0 } }}
@@ -120,32 +117,19 @@ function Header() {
           variant="temporary"
           open={mobileOpen}
           onClose={handleDrawerToggle}
-          ModalProps={{
-            keepMounted: true,
-          }}
+          ModalProps={{ keepMounted: true }}
           sx={{
             display: { xs: 'block', sm: 'none' },
-            '& .MuiDrawer-paper': {
-              width: 240,
-              boxSizing: 'border-box',
-              backgroundImage: 'linear-gradient(180deg, #3366CC 0%, #4B7BE5 100%)',
-              color: 'white',
-            },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 240 },
           }}
         >
           {drawer}
         </Drawer>
-
         <Drawer
           variant="permanent"
           sx={{
             display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': {
-              width: 240,
-              boxSizing: 'border-box',
-              backgroundImage: 'linear-gradient(180deg, #3366CC 0%, #4B7BE5 100%)',
-              color: 'white',
-            },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: 240 },
           }}
           open
         >
@@ -157,8 +141,23 @@ function Header() {
 }
 
 function App() {
+  const { user, loading } = useFirebase()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+
+  if (loading) {
+    return <div>Loading...</div>
+  }
+
+  if (!user && ['/login', '/register', '/'].includes(location.pathname)) {
+    return (
+      <Routes>
+        <Route path="/" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+      </Routes>
+    )
+  }
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -176,15 +175,15 @@ function App() {
       >
         <Toolbar sx={{ display: { sm: 'none' } }} />
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/" element={<Navigate to="/home" />} />
+          <Route path="/login" element={<Navigate to="/home" />} />
+          <Route path="/register" element={<Navigate to="/home" />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/demands" element={<DemandsPage />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
       </Box>
     </Box>
