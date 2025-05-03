@@ -1,24 +1,20 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "package.json",
-      "use": "@vercel/node"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
   "env": {
-    "MONGODB_URI": "@mongodb_uri",
-    "MONGODB_DB": "@mongodb_db",
-    "JWT_SECRET": "@jwt_secret"
+    "VITE_FIREBASE_API_KEY": "AIzaSyA-4l49UOG-1XUWn6mLi2ki0x_Jth4y1MQ",
+    "VITE_FIREBASE_AUTH_DOMAIN": "esans-talep-sistemi.firebaseapp.com",
+    "VITE_FIREBASE_PROJECT_ID": "esans-talep-sistemi",
+    "VITE_FIREBASE_STORAGE_BUCKET": "esans-talep-sistemi.firebasestorage.app",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID": "810199839185",
+    "VITE_FIREBASE_APP_ID": "1:810199839185:web:42f13704bfa5318aaeb0f0",
+    "VITE_FIREBASE_MEASUREMENT_ID": "G-4SQE8S8NYC"
   }
 }
