@@ -1,5 +1,4 @@
-import React from 'react'
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Container,
@@ -20,416 +19,232 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
-} from '@mui/material'
-import MuiAlert from '@mui/material/Alert'
+  InputLabel,
+  Grid
+} from '@mui/material';
+import MuiAlert from '@mui/material/Alert';
 import { 
   CheckCircle as CheckCircleIcon, 
   Autorenew,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon
-} from '@mui/icons-material'
-import { useTheme, useMediaQuery } from '@mui/material'
-import { Grid } from '@mui/material'
+} from '@mui/icons-material';
+import { useTheme, useMediaQuery } from '@mui/material';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { essenceService, demandService } from '../firebase/services';
 
 function HomePage() {
-  const [essences, setEssences] = useState(() => {
-    const savedEssences = localStorage.getItem('essences')
-    return savedEssences ? JSON.parse(savedEssences) : []
-  })
+  const [essences, setEssences] = useState([]);
+  const [demands, setDemands] = useState([]);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { user } = useFirebase();
 
-  const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
-
-  const [openRows, setOpenRows] = useState({})
-  const [openSnackbar, setOpenSnackbar] = useState(false)
-  const [snackbarMessage, setSnackbarMessage] = useState('')
-  const [snackbarSeverity, setSnackbarSeverity] = useState('success')
+  const [openRows, setOpenRows] = useState({});
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const savedEssences = localStorage.getItem('essences')
-    if (savedEssences) {
-      setEssences(JSON.parse(savedEssences))
-    }
-  }, [])
+    const unsubscribeEssences = essenceService.subscribeToEssences((updatedEssences) => {
+      setEssences(updatedEssences);
+    });
 
-  const handleCreateDemand = (selectedEssence) => {
-    const amount = 50
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'))
-    if (!currentUser) {
-      setSnackbarMessage('Lütfen giriş yapın')
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
-      return
+    const unsubscribeDemands = demandService.subscribeToDemands((updatedDemands) => {
+      setDemands(updatedDemands);
+    });
+
+    return () => {
+      unsubscribeEssences();
+      unsubscribeDemands();
+    };
+  }, []);
+
+  const handleCreateDemand = async (selectedEssence) => {
+    if (!user) {
+      setSnackbarMessage('Lütfen giriş yapın');
+      setSnackbarSeverity('error');
+      setOpenSnackbar(true);
+      return;
     }
+
+    const amount = 50;
 
     if (selectedEssence.stockAmount < amount || selectedEssence.totalDemand + amount > selectedEssence.stockAmount) {
-      setSnackbarMessage('Stok miktarı yetersiz')
-      setSnackbarSeverity('error')
-      setOpenSnackbar(true)
-      return
+      setSnackbarMessage('Stok miktarı yetersiz');
+      setSnackbarSeverity('error');
+      setOpenSnackbar(true);
+      return;
     }
 
-    // Kullanıcı bilgilerini localStorage'dan al
-    const users = JSON.parse(localStorage.getItem('users') || '[]')
-    const currentUserEmail = currentUser.email
-    const userDetails = users.find(u => u.email === currentUserEmail)
+    try {
+      const newDemand = {
+        essenceId: selectedEssence.id,
+        userId: user.uid,
+        userEmail: user.email,
+        amount: amount,
+        totalPrice: amount * selectedEssence.price,
+        category: selectedEssence.category
+      };
 
-    const newDemand = {
-      id: Date.now(),
-      userName: `${userDetails.firstName} ${userDetails.lastName}`,
-      amount: amount,
-      date: new Date().toISOString(),
-      totalPrice: amount * selectedEssence.price,
-      category: selectedEssence.category
+      await demandService.addDemand(newDemand);
+      
+      // Update essence total demand
+      await essenceService.updateEssence(selectedEssence.id, {
+        totalDemand: (selectedEssence.totalDemand || 0) + amount
+      });
+
+      setSnackbarMessage('Talep başarıyla oluşturuldu');
+      setSnackbarSeverity('success');
+      setOpenSnackbar(true);
+    } catch (error) {
+      console.error('Error creating demand:', error);
+      setSnackbarMessage('Talep oluşturulurken bir hata oluştu');
+      setSnackbarSeverity('error');
+      setOpenSnackbar(true);
     }
-
-    const updatedEssences = essences.map(e =>
-      e.id === selectedEssence.id
-        ? {
-            ...e,
-            totalDemand: e.totalDemand + amount,
-            demands: [...(e.demands || []), newDemand]
-          }
-        : e
-    )
-
-    setEssences(updatedEssences)
-    localStorage.setItem('essences', JSON.stringify(updatedEssences))
-    setSnackbarMessage('Talep başarıyla oluşturuldu')
-    setSnackbarSeverity('success')
-    setOpenSnackbar(true)
-  }
+  };
 
   const toggleRow = (id) => {
-    setOpenRows(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }))
-  }
+    setOpenRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
-  const [searchTerm, setSearchTerm] = useState('')
-  const [activeFilter, setActiveFilter] = useState('all')
-  const [selectedCategory, setSelectedCategory] = useState('all')
-
-  const categories = [...new Set(essences.map(essence => essence.category))].filter(Boolean)
+  const getCategories = () => {
+    const categories = new Set(essences.map(essence => essence.category || 'Kategorisiz'));
+    return ['all', ...Array.from(categories)];
+  };
 
   const filteredEssences = essences.filter(essence => {
-    const matchesSearch = 
-      essence.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      essence.code.toLowerCase().includes(searchTerm.toLowerCase())
-
-    const matchesCategory = 
-      selectedCategory === 'all' || essence.category === selectedCategory
-
-    switch(activeFilter) {
-      case 'confirmed':
-        return matchesSearch && matchesCategory && essence.totalDemand >= 250
-      case 'under250':
-        return matchesSearch && matchesCategory && essence.totalDemand < 250
-      case 'outOfStock':
-        return matchesSearch && matchesCategory && essence.stockAmount === essence.totalDemand
-      default:
-        return matchesSearch && matchesCategory
-    }
-  })
-
-  const renderMobileCard = (essence) => {
-    const isConfirmedPurchase = essence.totalDemand >= 250
-    
-    return (
-      <Paper
-        key={essence.id}
-        sx={{
-          p: 2,
-          mb: 2,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 1
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">{essence.name}</Typography>
-          <IconButton
-            size="small"
-            onClick={() => toggleRow(essence.id)}
-          >
-            {openRows[essence.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-          </IconButton>
-        </Box>
-
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Typography variant="body2">Kod: {essence.code}</Typography>
-          <Typography variant="body2">Kategori: {essence.category || '-'}</Typography>
-          <Typography variant="body2">Stok: {essence.stockAmount} gr</Typography>
-          <Typography variant="body2">Toplam Talep: {essence.totalDemand} gr</Typography>
-          <Typography variant="body2">Birim Fiyat: {essence.price} TL/gr</Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-          {isConfirmedPurchase ? (
-            <Chip
-              icon={<CheckCircleIcon />}
-              label="Kesin Alım"
-              color="warning"
-              variant="outlined"
-              size="small"
-            />
-          ) : (
-            <Chip
-              icon={<Autorenew />}
-              label="Talep Toplanıyor"
-              color="primary"
-              variant="outlined"
-              size="small"
-            />
-          )}
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => handleCreateDemand(essence)}
-            disabled={essence.stockAmount === 0}
-            size="small"
-          >
-            Talep Oluştur
-          </Button>
-        </Box>
-
-        <Collapse in={openRows[essence.id]} timeout="auto" unmountOnExit>
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Talepler
-            </Typography>
-            {essence.demands?.map((demand) => (
-              <Box
-                key={demand.id}
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  p: 1,
-                  borderBottom: '1px solid rgba(0, 0, 0, 0.12)'
-                }}
-              >
-                <Typography variant="body2">{demand.userName}</Typography>
-                <Typography variant="body2">{demand.amount} gr</Typography>
-                <Typography variant="body2">{new Date(demand.date).toLocaleDateString('tr-TR')}</Typography>
-              </Box>
-            ))}
-          </Box>
-        </Collapse>
-      </Paper>
-    )
-  }
+    const matchesCategory = selectedCategory === 'all' || essence.category === selectedCategory;
+    const matchesSearch = essence.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         essence.code.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
   return (
-    <Box sx={{
-      width: '100%',
-      height: '100%',
-      p: { xs: 1, sm: 2 },
-      overflow: 'hidden'
-    }}>
-      <Box sx={{
-        mb: 3,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2
-      }}>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Esans Listesi
+        </Typography>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Ara"
+              variant="outlined"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
             <FormControl fullWidth>
-              <InputLabel id="category-select-label">Kategori</InputLabel>
+              <InputLabel>Kategori</InputLabel>
               <Select
-                labelId="category-select-label"
                 value={selectedCategory}
                 label="Kategori"
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                sx={{
-                  bgcolor: 'white',
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(0, 0, 0, 0.1)',
-                  },
-                }}
               >
-                <MenuItem value="all">Tüm Kategoriler</MenuItem>
-                {categories.map(category => (
-                  <MenuItem key={category} value={category}>{category}</MenuItem>
+                {getCategories().map(category => (
+                  <MenuItem key={category} value={category}>
+                    {category === 'all' ? 'Tüm Kategoriler' : category}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              variant="outlined"
-              placeholder="Esans adı veya kodu ile arama yapın..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              sx={{
-                bgcolor: 'white',
-                borderRadius: 1,
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: 'rgba(0, 0, 0, 0.1)',
-                  },
-                },
-              }}
-            />
-          </Grid>
         </Grid>
-
-        <Box sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          gap: 1
-        }}>
-          <Button
-            variant={activeFilter === 'all' ? 'contained' : 'outlined'}
-            onClick={() => setActiveFilter('all')}
-            sx={{ flex: 1 }}
-          >
-            Tümü
-          </Button>
-          <Button
-            variant={activeFilter === 'confirmed' ? 'contained' : 'outlined'}
-            onClick={() => setActiveFilter('confirmed')}
-            sx={{ flex: 1 }}
-          >
-            Kesin Alınacaklar
-          </Button>
-          <Button
-            variant={activeFilter === 'under250' ? 'contained' : 'outlined'}
-            onClick={() => setActiveFilter('under250')}
-            sx={{ flex: 1 }}
-          >
-            250gr Altı
-          </Button>
-          <Button
-            variant={activeFilter === 'outOfStock' ? 'contained' : 'outlined'}
-            onClick={() => setActiveFilter('outOfStock')}
-            sx={{ flex: 1 }}
-          >
-            Bitenler
-          </Button>
-        </Box>
       </Box>
 
-      <Box sx={{
-        overflow: 'auto',
-        maxWidth: '100%',
-        '& .MuiTableContainer-root': {
-          overflow: 'auto'
-        },
-        '& .MuiTable-root': {
-          minWidth: { xs: 800, md: '100%' }
-        }
-      }}>
-        {isMobile ? (
-          <Box sx={{ mt: 2 }}>
-            {filteredEssences.map(renderMobileCard)}
-          </Box>
-        ) : (
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell />
+              <TableCell>Kod</TableCell>
+              <TableCell>İsim</TableCell>
+              <TableCell>Kategori</TableCell>
+              <TableCell align="right">Stok Miktarı</TableCell>
+              <TableCell align="right">Fiyat</TableCell>
+              <TableCell align="right">İşlemler</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {filteredEssences.map((essence) => (
+              <React.Fragment key={essence.id}>
                 <TableRow>
-                  <TableCell />
-                  <TableCell>Esans Adı</TableCell>
-                  <TableCell>Kod</TableCell>
-                  <TableCell>Kategori</TableCell>
-                  <TableCell align="center">Stok Miktarı (gr)</TableCell>
-                  <TableCell align="center">Toplam Talep (gr)</TableCell>
-                  <TableCell align="center">Birim Fiyat (TL/gr)</TableCell>
-                  <TableCell align="center">Durum</TableCell>
-                  <TableCell align="center">İşlem</TableCell>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      onClick={() => toggleRow(essence.id)}
+                    >
+                      {openRows[essence.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{essence.code}</TableCell>
+                  <TableCell>{essence.name}</TableCell>
+                  <TableCell>
+                    <Chip label={essence.category || 'Kategorisiz'} />
+                  </TableCell>
+                  <TableCell align="right">{essence.stockAmount}</TableCell>
+                  <TableCell align="right">{essence.price}</TableCell>
+                  <TableCell align="right">
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={() => handleCreateDemand(essence)}
+                      disabled={!user}
+                    >
+                      Talep Oluştur
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredEssences.map((essence) => {
-                  const isConfirmedPurchase = essence.totalDemand >= 250
-                  
-                  return (
-                    <React.Fragment key={essence.id}>
-                      <TableRow key={essence.id}>
-                        <TableCell>
-                          <IconButton
-                            aria-label="expand row"
-                            size="small"
-                            onClick={() => toggleRow(essence.id)}
-                          >
-                            {openRows[essence.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                          </IconButton>
-                        </TableCell>
-                        <TableCell>{essence.name}</TableCell>
-                        <TableCell>{essence.code}</TableCell>
-                        <TableCell>{essence.category || '-'}</TableCell>
-                        <TableCell align="center">{essence.stockAmount}</TableCell>
-                        <TableCell align="center">{essence.totalDemand}</TableCell>
-                        <TableCell align="center">{essence.price}</TableCell>
-                        <TableCell align="center">
-                          {isConfirmedPurchase ? (
-                            <Chip
-                              icon={<CheckCircleIcon />}
-                              label="Kesin Alım"
-                              color="warning"
-                              variant="outlined"
-                            />
-                          ) : (
-                            <Chip
-                              icon={<Autorenew />}
-                              label="Talep Toplanıyor"
-                              color="primary"
-                              variant="outlined"
-                            />
-                          )}
-                        </TableCell>
-                        <TableCell align="center">
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            onClick={() => handleCreateDemand(essence)}
-                            disabled={essence.stockAmount === 0}
-                          >
-                            Talep Oluştur
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
-                          <Collapse in={openRows[essence.id]} timeout="auto" unmountOnExit>
-                            <Box sx={{ margin: 1 }}>
-                              <Typography variant="h6" gutterBottom component="div">
-                                Talepler
-                              </Typography>
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell>Kullanıcı</TableCell>
-                                    <TableCell align="right">Miktar (gr)</TableCell>
-                                    <TableCell align="right">Tarih</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {essence.demands?.map((demand) => (
-                                    <TableRow key={demand.id}>
-                                      <TableCell component="th" scope="row">{demand.userName}</TableCell>
-                                      <TableCell align="right">{demand.amount}</TableCell>
-                                      <TableCell align="right">{new Date(demand.date).toLocaleDateString('tr-TR')}</TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </Box>
-                          </Collapse>
-                        </TableCell>
-                      </TableRow>
-                    </React.Fragment>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Box>
+                <TableRow>
+                  <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                    <Collapse in={openRows[essence.id]} timeout="auto" unmountOnExit>
+                      <Box sx={{ margin: 1 }}>
+                        <Typography variant="h6" gutterBottom component="div">
+                          Detaylar
+                        </Typography>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Toplam Talep</TableCell>
+                              <TableCell>Durum</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            <TableRow>
+                              <TableCell>{essence.totalDemand || 0}</TableCell>
+                              <TableCell>
+                                {essence.stockAmount >= essence.targetAmount ? (
+                                  <Chip
+                                    icon={<CheckCircleIcon />}
+                                    label="Hedef Tamamlandı"
+                                    color="success"
+                                  />
+                                ) : (
+                                  <Chip
+                                    icon={<Autorenew />}
+                                    label="Devam Ediyor"
+                                    color="warning"
+                                  />
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </React.Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Snackbar
         open={openSnackbar}
@@ -445,8 +260,8 @@ function HomePage() {
           {snackbarMessage}
         </MuiAlert>
       </Snackbar>
-    </Box>
-  )
+    </Container>
+  );
 }
 
-export default HomePage
+export default HomePage;

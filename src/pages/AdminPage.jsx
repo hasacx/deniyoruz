@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -21,8 +21,8 @@ import {
   IconButton,
   Collapse,
   Chip
-} from '@mui/material'
-import MuiAlert from '@mui/material/Alert'
+} from '@mui/material';
+import MuiAlert from '@mui/material/Alert';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -32,34 +32,27 @@ import {
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
   Autorenew
-} from '@mui/icons-material'
-import * as XLSX from 'xlsx'
+} from '@mui/icons-material';
+import * as XLSX from 'xlsx';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { essenceService } from '../firebase/services';
 
 function AdminPage() {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
+  const { user, isAdmin } = useFirebase();
 
   useEffect(() => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'))
-    if (!currentUser || currentUser.email !== 'admin@esans.com') {
-      navigate('/')
+    if (!isAdmin) {
+      navigate('/');
     }
-  }, [])
+  }, [isAdmin, navigate]);
 
-  const [essences, setEssences] = useState(() => {
-    const savedEssences = localStorage.getItem('essences')
-    return savedEssences ? JSON.parse(savedEssences) : [
-      { id: 1, name: 'Lavanta', totalDemand: 150, targetAmount: 250, stockAmount: 0 },
-      { id: 2, name: 'Vanilya', totalDemand: 200, targetAmount: 250, stockAmount: 0 },
-      { id: 3, name: 'Yasemin', totalDemand: 100, targetAmount: 250, stockAmount: 0 },
-      { id: 4, name: 'Gül', totalDemand: 250, targetAmount: 250, stockAmount: 0 },
-    ]
-  })
-
-  const [openRows, setOpenRows] = useState({})
-  const [openDialog, setOpenDialog] = useState(false)
-  const [openSnackbar, setOpenSnackbar] = useState(false)
-  const [snackbarMessage, setSnackbarMessage] = useState('')
-  const [editingEssence, setEditingEssence] = useState(null)
+  const [essences, setEssences] = useState([]);
+  const [openRows, setOpenRows] = useState({});
+  const [openDialog, setOpenDialog] = useState(false);
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [editingEssence, setEditingEssence] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     targetAmount: 250,
@@ -67,15 +60,19 @@ function AdminPage() {
     code: '',
     price: 0,
     category: ''
-  })
+  });
 
   useEffect(() => {
-    localStorage.setItem('essences', JSON.stringify(essences))
-  }, [essences])
+    const unsubscribe = essenceService.subscribeToEssences((updatedEssences) => {
+      setEssences(updatedEssences);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleOpenDialog = (essence = null) => {
     if (essence) {
-      setEditingEssence(essence)
+      setEditingEssence(essence);
       setFormData({
         name: essence.name,
         code: essence.code,
@@ -83,9 +80,9 @@ function AdminPage() {
         stockAmount: essence.stockAmount,
         price: essence.price,
         category: essence.category || ''
-      })
+      });
     } else {
-      setEditingEssence(null)
+      setEditingEssence(null);
       setFormData({
         name: '',
         code: '',
@@ -93,302 +90,234 @@ function AdminPage() {
         stockAmount: 0,
         price: 0,
         category: ''
-      })
+      });
     }
-    setOpenDialog(true)
-  }
+    setOpenDialog(true);
+  };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false)
-    setEditingEssence(null)
+    setOpenDialog(false);
+    setEditingEssence(null);
     setFormData({
       name: '',
       code: '',
       targetAmount: 250,
       stockAmount: 0,
-      price: 0
-    })
-  }
+      price: 0,
+      category: ''
+    });
+  };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
-  }
-
-  const handleSubmit = () => {
-    if (!formData.code || !/^[A-Za-z0-9]+$/.test(formData.code)) {
-      setSnackbarMessage('Lütfen geçerli bir kod giriniz (sadece harf ve rakam içerebilir)')
-      setOpenSnackbar(true)
-      return
-    }
-
-    const codeExists = essences.some(essence => 
-      essence.code === formData.code && (!editingEssence || essence.id !== editingEssence.id)
-    )
-
-    if (codeExists) {
-      setSnackbarMessage('Bu kod zaten kullanılmakta')
-      setOpenSnackbar(true)
-      return
-    }
-    if (editingEssence) {
-      setEssences(prev =>
-        prev.map(essence =>
-          essence.id === editingEssence.id
-            ? { ...essence, ...formData }
-            : essence
-        )
-      )
-      setSnackbarMessage('Esans başarıyla güncellendi')
-    } else {
-      const newEssence = {
-        id: essences.length + 1,
-        ...formData,
-        totalDemand: 0,
-        demands: []
+  const handleSubmit = async () => {
+    try {
+      if (editingEssence) {
+        await essenceService.updateEssence(editingEssence.id, formData);
+        setSnackbarMessage('Esans başarıyla güncellendi');
+      } else {
+        await essenceService.addEssence(formData);
+        setSnackbarMessage('Yeni esans başarıyla eklendi');
       }
-      setEssences(prev => [...prev, newEssence])
-      setSnackbarMessage('Yeni esans başarıyla eklendi')
+      setOpenSnackbar(true);
+      handleCloseDialog();
+    } catch (error) {
+      console.error('Error:', error);
+      setSnackbarMessage('Bir hata oluştu');
+      setOpenSnackbar(true);
     }
-    setOpenSnackbar(true)
-    handleCloseDialog()
-  }
+  };
 
-  const handleDelete = (id) => {
-    setEssences(prev => prev.filter(essence => essence.id !== id))
-    setSnackbarMessage('Esans başarıyla silindi')
-    setOpenSnackbar(true)
-  }
-
-  const downloadTemplate = () => {
-    const template = [
-      ['Esans Adı', 'Esans Kodu', 'Kategori', 'Stok Miktarı (gr)', 'Toplam Talep (gr)', 'Fiyat (TL/gr)'],
-      ['Örnek Esans 1', 'ES001', 'Kategori 1', 0, 0, 0],
-      ['Örnek Esans 2', 'ES002', 'Kategori 2', 0, 0, 0]
-    ]
-    
-    const ws = XLSX.utils.aoa_to_sheet(template)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Esans Şablonu')
-    XLSX.writeFile(wb, 'esans_sablonu.xlsx')
-  }
-
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0]
-    const reader = new FileReader()
-
-    reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-
-      // İlk satırı (başlıkları) atla ve verileri işle
-      const newEssences = jsonData.slice(1).map((row, index) => ({
-        id: essences.length + index + 1,
-        name: row[0],
-        code: row[1] || `ES${(essences.length + index + 1).toString().padStart(3, '0')}`,
-        category: row[2] || '',
-        stockAmount: row[3] || 0,
-        totalDemand: row[4] || 0,
-        price: row[5] || 0,
-        demands: []
-      }))
-
-      setEssences(prev => [...prev, ...newEssences])
-      setSnackbarMessage(`${newEssences.length} esans başarıyla içe aktarıldı`)
-      setOpenSnackbar(true)
+  const handleDelete = async (id) => {
+    try {
+      await essenceService.deleteEssence(id);
+      setSnackbarMessage('Esans başarıyla silindi');
+      setOpenSnackbar(true);
+    } catch (error) {
+      console.error('Error:', error);
+      setSnackbarMessage('Silme işlemi başarısız oldu');
+      setOpenSnackbar(true);
     }
+  };
 
-    reader.readAsArrayBuffer(file)
-  }
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+        for (const row of jsonData) {
+          await essenceService.addEssence({
+            name: row.name || '',
+            code: row.code || '',
+            targetAmount: Number(row.targetAmount) || 250,
+            stockAmount: Number(row.stockAmount) || 0,
+            price: Number(row.price) || 0,
+            category: row.category || ''
+          });
+        }
+
+        setSnackbarMessage('Excel dosyası başarıyla yüklendi');
+        setOpenSnackbar(true);
+      } catch (error) {
+        console.error('Error:', error);
+        setSnackbarMessage('Excel yükleme işlemi başarısız oldu');
+        setOpenSnackbar(true);
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleExport = () => {
+    const worksheet = XLSX.utils.json_to_sheet(essences);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Essences');
+    XLSX.writeFile(workbook, 'essences.xlsx');
+  };
 
   const toggleRow = (id) => {
-    setOpenRows(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }))
-  }
+    setOpenRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   return (
-    <Box sx={{ width: '100%', height: '100%', backgroundColor: '#fff', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: '1px solid rgba(224, 224, 224, 1)' }}>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
         <Typography variant="h4" component="h1">
           Esans Yönetimi
         </Typography>
         <Box>
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            style={{ display: 'none' }}
+            id="file-upload"
+            onChange={handleFileUpload}
+          />
+          <label htmlFor="file-upload">
+            <Button
+              component="span"
+              variant="contained"
+              startIcon={<Autorenew />}
+              sx={{ mr: 1 }}
+            >
+              Excel Yükle
+            </Button>
+          </label>
           <Button
-            variant="outlined"
+            variant="contained"
             startIcon={<DownloadIcon />}
-            onClick={downloadTemplate}
-            sx={{ mr: 2 }}
+            onClick={handleExport}
+            sx={{ mr: 1 }}
           >
-            Şablon İndir
-          </Button>
-          <Button
-            variant="outlined"
-            component="label"
-            sx={{ mr: 2 }}
-          >
-            Excel Yükle
-            <input
-              type="file"
-              hidden
-              accept=".xlsx, .xls"
-              onChange={handleFileUpload}
-            />
+            Excel İndir
           </Button>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => handleOpenDialog()}
           >
-            Yeni Esans Ekle
+            Yeni Esans
           </Button>
         </Box>
       </Box>
 
-
-
-      <Box sx={{ mt: 4, pt: 4 }}>
-
-        <TableContainer component={props => <Paper {...props} elevation={0} />} sx={{ backgroundColor: '#fff', marginTop: 0, marginBottom: 0 }}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell padding="none" width="48px" />
-                <TableCell>Esans Adı</TableCell>
-                <TableCell>Esans Kodu</TableCell>
-                <TableCell>Kategori</TableCell>
-                <TableCell align="right">Stok Miktarı (gr)</TableCell>
-                <TableCell align="right">Toplam Talep (gr)</TableCell>
-                <TableCell align="right">Fiyat (TL/gr)</TableCell>
-                <TableCell align="right">Durum</TableCell>
-                <TableCell align="right">İşlemler</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {essences.map((essence) => {
-                const isConfirmedPurchase = essence.totalDemand >= 250
-                
-                return (
-                  <React.Fragment key={essence.id}>
-                    <TableRow>
-                      <TableCell padding="none">
-                        <IconButton
-                          size="small"
-                          onClick={() => toggleRow(essence.id)}
-                        >
-                          {openRows[essence.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                        </IconButton>
-                      </TableCell>
-                      <TableCell>{essence.name}</TableCell>
-                      <TableCell>{essence.code}</TableCell>
-                      <TableCell>{essence.category || '-'}</TableCell>
-                      <TableCell align="right">{essence.stockAmount}</TableCell>
-                      <TableCell align="right">{essence.totalDemand}</TableCell>
-                      <TableCell align="right">{essence.price}</TableCell>
-                      <TableCell align="right">
-                        {isConfirmedPurchase ? (
-                          <Chip
-                            icon={<CheckCircleIcon />}
-                            label="Kesin Alım"
-                            color="warning"
-                            variant="outlined"
-                            sx={{
-                              '& .MuiChip-icon': {
-                                color: 'inherit'
-                              }
-                            }}
-                          />
-                        ) : (
-                          <Chip
-                            icon={<Autorenew />}
-                            label="Talep Toplanıyor"
-                            color="primary"
-                            variant="outlined"
-                            sx={{
-                              '& .MuiChip-icon': {
-                                color: 'inherit'
-                              }
-                            }}
-                          />
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenDialog(essence)}
-                          sx={{ mr: 1 }}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDelete(essence.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
-                        <Collapse in={openRows[essence.id]} timeout="auto" unmountOnExit>
-                          <Box sx={{ margin: 1 }}>
-                            <Typography variant="h6" gutterBottom component="div">
-                              Talep Geçmişi
-                            </Typography>
-                            <Table size="small" sx={{ backgroundColor: '#fff' }}>
-                              <TableHead>
-                                <TableRow>
-                                  <TableCell>Ad Soyad</TableCell>
-                                  <TableCell>Telefon</TableCell>
-                                  <TableCell align="right">Talep Miktarı (gr)</TableCell>
-                                  <TableCell align="right">Birim Fiyat (TL/gr)</TableCell>
-                                  <TableCell align="right">Toplam Tutar (TL)</TableCell>
-                                  <TableCell align="right">Tarih</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {(essence.demands || []).map((demand) => {
-                                  const users = JSON.parse(localStorage.getItem('users') || '[]')
-                                  const userDetails = users.find(u => 
-                                    `${u.firstName} ${u.lastName}` === demand.userName
-                                  )
-                                  
-                                  return (
-                                    <TableRow key={demand.id}>
-                                      <TableCell component="th" scope="row">
-                                        {demand.userName}
-                                      </TableCell>
-                                      <TableCell>
-                                        {userDetails?.phone || '-'}
-                                      </TableCell>
-                                      <TableCell align="right">{demand.amount}</TableCell>
-                                      <TableCell align="right">{essence.price}</TableCell>
-                                      <TableCell align="right">{demand.amount * essence.price}</TableCell>
-                                      <TableCell align="right">
-                                        {new Date(demand.date).toLocaleDateString('tr-TR')}
-                                      </TableCell>
-                                    </TableRow>
-                                  )
-                                })}
-                              </TableBody>
-                            </Table>
-                          </Box>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
-                  </React.Fragment>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell />
+              <TableCell>Kod</TableCell>
+              <TableCell>İsim</TableCell>
+              <TableCell>Kategori</TableCell>
+              <TableCell align="right">Hedef Miktar</TableCell>
+              <TableCell align="right">Stok Miktarı</TableCell>
+              <TableCell align="right">Fiyat</TableCell>
+              <TableCell align="right">İşlemler</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {essences.map((essence) => (
+              <React.Fragment key={essence.id}>
+                <TableRow>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      onClick={() => toggleRow(essence.id)}
+                    >
+                      {openRows[essence.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{essence.code}</TableCell>
+                  <TableCell>{essence.name}</TableCell>
+                  <TableCell>
+                    <Chip label={essence.category || 'Kategorisiz'} />
+                  </TableCell>
+                  <TableCell align="right">{essence.targetAmount}</TableCell>
+                  <TableCell align="right">{essence.stockAmount}</TableCell>
+                  <TableCell align="right">{essence.price}</TableCell>
+                  <TableCell align="right">
+                    <IconButton
+                      color="primary"
+                      onClick={() => handleOpenDialog(essence)}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      color="error"
+                      onClick={() => handleDelete(essence.id)}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                    <Collapse in={openRows[essence.id]} timeout="auto" unmountOnExit>
+                      <Box sx={{ margin: 1 }}>
+                        <Typography variant="h6" gutterBottom component="div">
+                          Detaylar
+                        </Typography>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Toplam Talep</TableCell>
+                              <TableCell>Durum</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            <TableRow>
+                              <TableCell>{essence.totalDemand || 0}</TableCell>
+                              <TableCell>
+                                {essence.stockAmount >= essence.targetAmount ? (
+                                  <Chip
+                                    icon={<CheckCircleIcon />}
+                                    label="Hedef Tamamlandı"
+                                    color="success"
+                                  />
+                                ) : (
+                                  <Chip
+                                    label="Devam Ediyor"
+                                    color="warning"
+                                  />
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </React.Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Dialog open={openDialog} onClose={handleCloseDialog}>
         <DialogTitle>
@@ -397,49 +326,48 @@ function AdminPage() {
         <DialogContent>
           <TextField
             margin="dense"
-            name="name"
-            label="Esans Adı"
-            type="text"
-            fullWidth
-            value={formData.name}
-            onChange={handleInputChange}
-          />
-          <TextField
-            margin="dense"
-            name="code"
-            label="Esans Kodu"
-            type="text"
+            label="Kod"
             fullWidth
             value={formData.code}
-            onChange={handleInputChange}
-            helperText="Sadece harf ve rakam içerebilir"
+            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
           />
           <TextField
             margin="dense"
-            name="stockAmount"
-            label="Stok Miktarı (gr)"
+            label="İsim"
+            fullWidth
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          />
+          <TextField
+            margin="dense"
+            label="Kategori"
+            fullWidth
+            value={formData.category}
+            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+          />
+          <TextField
+            margin="dense"
+            label="Hedef Miktar"
+            type="number"
+            fullWidth
+            value={formData.targetAmount}
+            onChange={(e) => setFormData({ ...formData, targetAmount: Number(e.target.value) })}
+          />
+          <TextField
+            margin="dense"
+            label="Stok Miktarı"
             type="number"
             fullWidth
             value={formData.stockAmount}
-            onChange={handleInputChange}
+            onChange={(e) => setFormData({ ...formData, stockAmount: Number(e.target.value) })}
           />
           <TextField
             margin="dense"
-            name="price"
-            label="Fiyat (TL/gr)"
+            label="Fiyat"
             type="number"
             fullWidth
             value={formData.price}
-            onChange={handleInputChange}
-          />
-          <TextField
-            margin="dense"
-            name="category"
-            label="Kategori"
-            type="text"
-            fullWidth
-            value={formData.category}
-            onChange={handleInputChange}
+            onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
           />
         </DialogContent>
         <DialogActions>
@@ -452,19 +380,20 @@ function AdminPage() {
 
       <Snackbar
         open={openSnackbar}
-        autoHideDuration={3000}
+        autoHideDuration={6000}
         onClose={() => setOpenSnackbar(false)}
       >
         <MuiAlert
           elevation={6}
           variant="filled"
           severity="success"
-          onClose={() => setOpenSnackbar(false)}>
+          onClose={() => setOpenSnackbar(false)}
+        >
           {snackbarMessage}
         </MuiAlert>
       </Snackbar>
-    </Box>
-  )
+    </Container>
+  );
 }
 
-export default AdminPage
+export default AdminPage;
