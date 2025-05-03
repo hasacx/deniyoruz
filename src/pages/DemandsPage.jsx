@@ -1,83 +1,73 @@
-import { useState, useEffect } from 'react'
-import { Container, Typography, Paper, List, ListItem, ListItemText, Collapse, IconButton, Box } from '@mui/material'
-import { useNavigate } from 'react-router-dom'
-import ExpandMore from '@mui/icons-material/ExpandMore'
-import ExpandLess from '@mui/icons-material/ExpandLess'
-import { db } from '../firebase'
-import { collection, getDocs, query, where } from 'firebase/firestore'
+import { useState, useEffect } from 'react';
+import { Container, Typography, Paper, List, ListItem, ListItemText, Collapse, IconButton, Box } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import { useFirebase } from '../contexts/FirebaseContext';
+import { demandService, essenceService } from '../firebase/services';
 
 function DemandsPage() {
-  const navigate = useNavigate()
-  const [userDemands, setUserDemands] = useState([])
-  const [expandedUser, setExpandedUser] = useState(null)
+  const navigate = useNavigate();
+  const [userDemands, setUserDemands] = useState([]);
+  const [expandedUser, setExpandedUser] = useState(null);
+  const { user } = useFirebase();
 
   useEffect(() => {
-    const fetchDemands = async () => {
-      try {
-        const demandsSnapshot = await getDocs(collection(db, 'demands'))
-        const demandsMap = new Map()
-
-        for (const doc of demandsSnapshot.docs) {
-          const demand = { id: doc.id, ...doc.data() }
-
-          if (demand.quantity >= 250) {
-            const userRef = doc.data().userRef
-            const userDoc = await getDocs(query(collection(db, 'users'), where('email', '==', userRef)))
-
-            if (!userDoc.empty) {
-              const userData = userDoc.docs[0].data()
-              const userName = `${userData.firstName} ${userData.lastName}`
-
-              if (!demandsMap.has(userName)) {
-                demandsMap.set(userName, {
-                  userInfo: {
-                    name: userName,
-                    phone: userData.phone,
-                    city: userData.city,
-                    district: userData.district,
-                    neighborhood: userData.neighborhood,
-                    address: userData.address
-                  },
-                  demands: [],
-                  totalAmount: 0
-                })
-              }
-
-              const demandWithPrice = {
-                id: demand.id,
-                essenceName: demand.essenceName,
-                essenceCode: demand.essenceCode,
-                amount: demand.quantity,
-                date: demand.createdAt.toDate(),
-                price: demand.price,
-                category: demand.category
-              }
-
-              demandsMap.get(userName).demands.push(demandWithPrice)
-              demandsMap.get(userName).totalAmount += demand.price
-            }
-          }
-        }
-
-        const userDemandsList = Array.from(demandsMap.values())
-        userDemandsList.forEach(userData => {
-          userData.demands.sort((a, b) => b.date - a.date)
-        })
-        setUserDemands(userDemandsList)
-      } catch (error) {
-        console.error('Error fetching demands:', error)
-        setSnackbarMessage('Error fetching demands')
-        setSnackbarSeverity('error')
-        setOpenSnackbar(true)
-      }
+    if (!user || !user.email || user.email !== 'admin@esans.com') {
+      navigate('/home');
+      return;
     }
 
-    fetchDemands()
-  }, [])
+    const unsubscribeDemands = demandService.subscribeToDemandsOver250((demands) => {
+      const demandsMap = new Map();
 
-  const handleExpandClick = (userName) => {
-    setExpandedUser(expandedUser === userName ? null : userName)
-  }
+      demands.forEach(demand => {
+        if (!demandsMap.has(demand.userEmail)) {
+          demandsMap.set(demand.userEmail, {
+            userInfo: {
+              email: demand.userEmail,
+              name: demand.userEmail.split('@')[0], // Geçici olarak email'den isim oluşturuyoruz
+            },
+            demands: [],
+            totalAmount: 0
+          });
+        }
+
+        essenceService.getEssence(demand.essenceId).then(essence => {
+          if (essence) {
+            const demandWithPrice = {
+              id: demand.id,
+              essenceName: essence.name,
+              essenceCode: essence.code,
+              amount: demand.amount,
+              date: demand.createdAt,
+              price: essence.price,
+              category: essence.category
+            };
+
+            const userDemand = demandsMap.get(demand.userEmail);
+            userDemand.demands.push(demandWithPrice);
+            userDemand.totalAmount += essence.price * demand.amount;
+
+            // Map'i array'e çevirip state'i güncelliyoruz
+            const userDemandsList = Array.from(demandsMap.values());
+            userDemandsList.forEach(userData => {
+              userData.demands.sort((a, b) => b.date - a.date);
+            });
+            setUserDemands(userDemandsList);
+          }
+        });
+      });
+    });
+
+    return () => {
+      unsubscribeDemands();
+    };
+  }, [user, navigate]);
+
+  const handleExpandClick = (userEmail) => {
+    setExpandedUser(expandedUser === userEmail ? null : userEmail);
+  };
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
@@ -86,10 +76,10 @@ function DemandsPage() {
       </Typography>
       <List>
         {userDemands.map((userData) => (
-          <Paper key={userData.userInfo.name} elevation={3} sx={{ mb: 2, overflow: 'hidden' }}>
+          <Paper key={userData.userInfo.email} elevation={3} sx={{ mb: 2, overflow: 'hidden' }}>
             <ListItem
               button
-              onClick={() => handleExpandClick(userData.userInfo.name)}
+              onClick={() => handleExpandClick(userData.userInfo.email)}
               sx={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -100,19 +90,7 @@ function DemandsPage() {
               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <ListItemText
                   primary={userData.userInfo.name}
-                  secondary={
-                    <>
-                      <Typography component="span" variant="body2" color="text.primary">
-                        {userData.userInfo.phone}
-                      </Typography>
-                      <br />
-                      <Typography component="span" variant="body2" color="text.secondary">
-                        {`${userData.userInfo.city} / ${userData.userInfo.district} / ${userData.userInfo.neighborhood}`}
-                        <br />
-                        {userData.userInfo.address}
-                      </Typography>
-                    </>
-                  }
+                  secondary={userData.userInfo.email}
                 />
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <Paper elevation={1} sx={{ px: 2, py: 1, bgcolor: 'primary.main', borderRadius: 1 }}>
@@ -121,12 +99,12 @@ function DemandsPage() {
                     </Typography>
                   </Paper>
                   <IconButton edge="end">
-                    {expandedUser === userData.userInfo.name ? <ExpandLess /> : <ExpandMore />}
+                    {expandedUser === userData.userInfo.email ? <ExpandLess /> : <ExpandMore />}
                   </IconButton>
                 </Box>
               </Box>
             </ListItem>
-            <Collapse in={expandedUser === userData.userInfo.name} timeout="auto" unmountOnExit>
+            <Collapse in={expandedUser === userData.userInfo.email} timeout="auto" unmountOnExit>
               <List component="div" disablePadding>
                 <ListItem sx={{ pl: 4, pr: 4, pt: 1, pb: 1, display: 'flex', flexDirection: 'row', gap: 2, borderBottom: '2px solid rgba(0, 0, 0, 0.12)' }}>
                   <Typography variant="subtitle2" sx={{ flex: 2, fontWeight: 600 }}>
@@ -187,7 +165,7 @@ function DemandsPage() {
         ))}
       </List>
     </Container>
-  )
+  );
 }
 
-export default DemandsPage
+export default DemandsPage;

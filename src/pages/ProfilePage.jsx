@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Box, Container, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Grid, Card, CardContent, IconButton, Snackbar, Checkbox, Button } from '@mui/material'
 import { Person as PersonIcon, Phone as PhoneIcon, Email as EmailIcon, LocationOn as LocationIcon, LocationCity as LocationCityIcon, Home as HomeIcon, Delete as DeleteIcon } from '@mui/icons-material'
 import MuiAlert from '@mui/material/Alert'
-import { collection, getDocs } from 'firebase-admin'
 
 function ProfilePage() {
   const [userInfo, setUserInfo] = useState({
@@ -23,6 +22,16 @@ function ProfilePage() {
   })
 
   const [selectedDemands, setSelectedDemands] = useState([])
+
+  const handleCheckboxChange = (demandId) => {
+    setSelectedDemands(prev => {
+      if (prev.includes(demandId)) {
+        return prev.filter(id => id !== demandId)
+      } else {
+        return [...prev, demandId]
+      }
+    })
+  }
 
   useEffect(() => {
     const currentUser = JSON.parse(localStorage.getItem('currentUser'))
@@ -132,40 +141,11 @@ function ProfilePage() {
     }
   }
 
-  const handleSelect = (demandId) => {
-    setSelectedDemands(prevSelected => {
-      if (prevSelected.includes(demandId)) {
-        return prevSelected.filter(id => id !== demandId)
-      } else {
-        return [...prevSelected, demandId]
-      }
-    })
-  }
+
 
   const handleSnackbarClose = () => {
     setSnackbar({ ...snackbar, open: false })
   }
-
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      try {
-        const userSnapshot = await getDocs(collection(db, 'users'))
-        const userProfile = userSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-  
-        setUserProfile(userProfile)
-      } catch (error) {
-        console.error('Error fetching user profile:', error)
-        setSnackbarMessage('Error fetching user profile')
-        setSnackbarSeverity('error')
-        setOpenSnackbar(true)
-      }
-    }
-  
-    fetchUserProfile()
-  }, [])
 
   return (
     <Box sx={{ width: '100%', height: '100%', p: 2 }}>
@@ -257,7 +237,7 @@ function ProfilePage() {
                       <TableCell padding="checkbox">
                         <Checkbox
                           checked={selectedDemands.includes(demand.id)}
-                          onChange={() => handleSelect(demand.id)}
+                          onChange={() => handleCheckboxChange(demand.id)}
                         />
                       </TableCell>
                       <TableCell>{demand.essenceName}</TableCell>
